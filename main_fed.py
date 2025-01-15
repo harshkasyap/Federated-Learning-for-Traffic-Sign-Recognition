@@ -5,7 +5,7 @@
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import copy
+import copy, os
 import numpy as np
 from torchvision import datasets, transforms
 import torch
@@ -14,7 +14,7 @@ from utils.sampling import mnist_iid, mnist_noniid, cifar_iid, traffic_iid
 from utils.options import args_parser
 from models.Update import LocalUpdate
 from models.Nets import MLP, CNNMnist, CNNCifar, LeNet
-from models.Fed import FedAvg
+from models.Fed import FedAvg, TrimmedMean
 from models.test import test_img
 import loading_data as dataset
 
@@ -64,15 +64,50 @@ if __name__ == '__main__':
             exit('Error: only consider IID setting in CIFAR10')
     elif args.dataset == 'traffic':
         dataset_train, dataset_test = get_train_valid_loader(
-            '/home/liuyi/Documents/federated-learning-master/federated-learning-master/data',
+            'data',
             batch_size=32, num_workers=0)
         if args.iid:
             dict_users = traffic_iid(dataset_train, args.num_users)
+            #print(dict_users)
         else:
             exit('Error: only consider IID setting in Traffic')
     else:
         exit('Error: unrecognized dataset')
     #img_size = dataset_train[0][0].shape
+
+    #Data Poisoning (Backdoor)
+    poison_ratio = 0.2
+    poisoned_users = int(poison_ratio * args.num_users)
+    target_label = 38  # Label to target for poisoning
+    poison_label = 37  # New label after poisoning
+
+    for user in range(poisoned_users):
+        indices = dict_users[user]
+        for idx in indices:
+            img_path = os.path.join(
+                "data/BelgiumTS/Training/",
+                dataset_train.csv_data.iloc[idx, 0]
+            )
+            
+            label = dataset_train.csv_data.iloc[idx, 1]
+
+            # Only poison images with the target label
+            if label == target_label:
+                output_path = os.path.join(
+                    "data/BelgiumTS/Training/",
+                    f"poisoned_{idx}.ppm"  # Save the modified image with a unique name
+                )
+                
+                # print(output_path)
+
+                # Add the backdoor and save it as a PPM file
+                dataset.add_backdoor(img_path, output_path)
+                
+                # Update the dataset CSV with the new path and label
+                dataset_train.csv_data.iloc[idx, 0] = f"poisoned_{idx}.ppm"
+                dataset_train.csv_data.iloc[idx, 1] = poison_label
+
+    #End DP
 
     # build model
     if args.model == 'cnn' and args.dataset == 'cifar':
@@ -120,7 +155,8 @@ if __name__ == '__main__':
                 w_locals.append(copy.deepcopy(w))
             loss_locals.append(copy.deepcopy(loss))
         # update global weights
-        w_glob = FedAvg(w_locals)
+        #w_glob = FedAvg(w_locals)
+        w_glob = TrimmedMean(w_locals)
 
         # copy weight to net_glob
         net_glob.load_state_dict(w_glob)
@@ -143,3 +179,41 @@ if __name__ == '__main__':
     print("Training accuracy: {:.2f}".format(acc_train))
     print("Testing accuracy: {:.2f}".format(acc_test))
 
+    # Ensure the backdoor test directory exists
+    backdoor_test_csv = dataset_test.csv_data[dataset_test.csv_data.iloc[:, 1] == target_label].copy()
+    print(len(backdoor_test_csv))
+
+    # Prepare backdoor test set
+    for idx in range(len(backdoor_test_csv)):
+        img_path = os.path.join(
+            "data/BelgiumTS/Testing/",
+            backdoor_test_csv.iloc[idx, 0]  # Access the image path from the filtered CSV
+        )
+        
+        label = backdoor_test_csv.iloc[idx, 1]  # Access the label from the filtered CSV
+
+        # Only poison images with the target label
+        if label == target_label:
+            output_path = os.path.join(
+                "data/BelgiumTS/Backdoor/",
+                f"poisoned_{idx}.ppm"  # Save the modified image with a unique name
+            )
+            
+            # Add the backdoor and save it as a PPM file
+            dataset.add_backdoor(img_path, output_path)
+            
+            # Update the dataset CSV with the new path and poisoned label
+            backdoor_test_csv.iloc[idx, 0] = f"poisoned_{idx}.ppm"
+            backdoor_test_csv.iloc[idx, 1] = poison_label  # Update to the poisoned label
+
+    # Save the backdoor-only test CSV
+    # Define the backdoor test dataset
+    backdoor_test_dataset = dataset.BackdoorTestDataset(
+        csv_data=backdoor_test_csv,
+        root_dir="data/BelgiumTS/Backdoor/",
+        transform=None  # Add transforms if needed
+    )
+
+    # Testing the model on the backdoor-only dataset
+    backdoor_acc_test, backdoor_loss_test = test_img(net_glob, backdoor_test_dataset, args)
+    print("Testing accuracy: {:.2f}".format(backdoor_acc_test))
