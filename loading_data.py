@@ -41,6 +41,46 @@ def add_backdoor(img_path, output_path):
     # Save the modified image back as PPM
     img.save(output_path, format='PPM')
 
+def add_gradual_backdoor(img_path, output_path, epoch, max_epochs):
+    """
+    Adds a gradual backdoor to a PPM image and saves it back.
+    
+    Args:
+        img_path (str): Path to the input PPM image.
+        output_path (str): Path to save the modified PPM image.
+        epoch (int): Current epoch number.
+        max_epochs (int): Total number of epochs for the attack.
+    """
+    max_epochs = 100
+
+    # Open the PPM image
+    img = Image.open(img_path)
+    
+    # Normalize the epoch to a range of 0 to 1
+    progress = epoch / max_epochs
+    
+    if max_epochs == 100:
+        progress = 1
+
+    # Define the size of the backdoor (gradually increases)
+    start_size = 5  # Initial size of the backdoor
+    max_size = 15  # Maximum size of the backdoor
+    size = int(start_size + progress * (max_size - start_size))
+    
+    # Define the position of the backdoor
+    position = [5, 5, 5 + size, 5 + size]
+    
+    # Define the intensity or color of the backdoor (gradual opacity)
+    intensity = int(255 * progress)  # Gradually increase brightness
+    color = (intensity, intensity, intensity)
+    
+    # Add the backdoor
+    draw = ImageDraw.Draw(img)
+    draw.rectangle(position, fill=color)
+    
+    # Save the modified image back as PPM
+    img.save(output_path, format='PPM')    
+
 class BelgiumTS(Dataset):
     base_folder = 'BelgiumTS'
 

@@ -15,7 +15,7 @@ def FedAvg(w):
         w_avg[k] = torch.div(w_avg[k], len(w))
     return w_avg
 
-def TrimmedMean(w, beta=0.2):
+def TrimmedMean(w, beta=0.05):
     """
     Perform the Trimmed Mean aggregation on client weights.
     

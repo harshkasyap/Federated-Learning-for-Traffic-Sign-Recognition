@@ -76,38 +76,39 @@ if __name__ == '__main__':
     #img_size = dataset_train[0][0].shape
 
     #Data Poisoning (Backdoor)
-    poison_ratio = 0.05
+    poison_ratio = 0.2
     poisoned_users = int(poison_ratio * args.num_users)
     target_label = 38  # Label to target for poisoning
     poison_label = 37  # New label after poisoning
 
-    for user in range(poisoned_users):
-        indices = dict_users[user]
-        for idx in indices:
-            img_path = os.path.join(
-                "data/BelgiumTS/Training/",
-                dataset_train.csv_data.iloc[idx, 0]
-            )
-            
-            label = dataset_train.csv_data.iloc[idx, 1]
-
-            # Only poison images with the target label
-            if label == target_label:
-                output_path = os.path.join(
+    def gradual_backdoor(epoch):
+        for user in range(poisoned_users):
+            indices = dict_users[user]
+            for idx in indices:
+                img_path = os.path.join(
                     "data/BelgiumTS/Training/",
-                    f"poisoned_{idx}.ppm"  # Save the modified image with a unique name
+                    dataset_train.csv_data.iloc[idx, 0]
                 )
                 
-                # print(output_path)
+                label = dataset_train.csv_data.iloc[idx, 1]
 
-                # Add the backdoor and save it as a PPM file
-                dataset.add_backdoor(img_path, output_path)
-                
-                # Update the dataset CSV with the new path and label
-                dataset_train.csv_data.iloc[idx, 0] = f"poisoned_{idx}.ppm"
-                dataset_train.csv_data.iloc[idx, 1] = poison_label
+                # Only poison images with the target label
+                if label == target_label:
+                    output_path = os.path.join(
+                        "data/BelgiumTS/Training/",
+                        f"poisoned_{idx}.ppm"  # Save the modified image with a unique name
+                    )
+                    
+                    # print(output_path)
 
-    #End DP
+                    # Add the backdoor and save it as a PPM file
+                    dataset.add_gradual_backdoor(img_path, output_path, epoch, args.epochs)
+                    
+                    # Update the dataset CSV with the new path and label
+                    dataset_train.csv_data.iloc[idx, 0] = f"poisoned_{idx}.ppm"
+                    dataset_train.csv_data.iloc[idx, 1] = poison_label
+
+        #End DP
 
     # build model
     if args.model == 'cnn' and args.dataset == 'cifar':
@@ -141,6 +142,9 @@ if __name__ == '__main__':
         print("Aggregation over all clients")
         w_locals = [w_glob for i in range(args.num_users)]
     for iter in range(args.epochs):
+        #gradual_backdoor
+        gradual_backdoor(iter)
+
         loss_locals = []
         if not args.all_clients:
             w_locals = []
